@@ -19,6 +19,7 @@ streamlit run app.py
 ```
 
 ### Variables de entorno
+Se debe tener el archivo .env en el directorio raiz, con lo siguiente:
 
 Requeridas:
 
