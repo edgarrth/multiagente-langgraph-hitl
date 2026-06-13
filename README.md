@@ -56,8 +56,51 @@ flowchart TD
 	FIN --> LTM[LongTermMemory -> Supabase]
 	MAIN --> REDIS[(Redis Events)]
 ```
+### Diagrama del flujo LangGraph de la PoC
 
+```mermaid
+flowchart TD
+    A[Inicio: User Question] --> B[Query Interpreter Agent]
+
+    B --> C[Supervisor Agent]
+
+    C -->|Requiere SQL| D[SQL Expert Agent]
+    C -->|No requiere SQL| H[Explainer Agent]
+
+    D --> E[SQL Executor]
+
+    E -->|SQL válido| F[Execute SELECT Query]
+    E -->|SQL inválido o error| G[SQL Error Handler]
+
+    F --> H[Explainer Agent]
+    G --> H
+
+    H --> I[Finalizer Agent]
+
+    I --> J[Respuesta Final]
 ---
+
+### Flujo con revisión humana HITL
+
+```mermaid
+flowchart TD
+    A[Pregunta del usuario] --> B[Interpretar intención]
+    B --> C[Supervisor decide estrategia]
+
+    C --> D[Generar SQL]
+    D --> E{Aprobación humana del SQL}
+
+    E -->|Aprobar| F[Ejecutar SQL]
+    E -->|Editar SQL| D
+    E -->|Rechazar| X[Cancelar o pedir nueva consulta]
+
+    F --> G[Generar explicación]
+    G --> H{Aprobación humana de respuesta final}
+
+    H -->|Aprobar| I[Mostrar respuesta final]
+    H -->|Editar feedback| G
+    H -->|Rechazar| X
+```
 
 ### Clases principales (resumen corto)
 
