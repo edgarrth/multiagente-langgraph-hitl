@@ -59,48 +59,42 @@ flowchart TD
 
 ### Diagrama del flujo LangGraph de la PoC
 
-```mermaid
-flowchart TD
-    A[Inicio: User Question] --> B[Query Interpreter Agent]
-
-    B --> C[Supervisor Agent]
-
-    C -->|Requiere SQL| D[SQL Expert Agent]
-    C -->|No requiere SQL| H[Explainer Agent]
-
-    D --> E[SQL Executor]
-
-    E -->|SQL válido| F[Execute SELECT Query]
-    E -->|SQL inválido o error| G[SQL Error Handler]
-
-    F --> H[Explainer Agent]
-    G --> H
-
-    H --> I[Finalizer Agent]
-
-    I --> J[Respuesta Final]
-```
-
-### Flujo con revisión humana HITL
 
 ```mermaid
-flowchart TD
-    A[Pregunta del usuario] --> B[Interpretar intención]
-    B --> C[Supervisor decide estrategia]
+stateDiagram-v2
+    direction LR
 
-    C --> D[Generar SQL]
-    D --> E{Aprobación humana del SQL}
+    [*] --> START
 
-    E -->|Aprobar| F[Ejecutar SQL]
-    E -->|Editar SQL| D
-    E -->|Rechazar| X[Cancelar o pedir nueva consulta]
+    START --> query_interpreter
+    query_interpreter --> supervisor
 
-    F --> G[Generar explicación]
-    G --> H{Aprobación humana de respuesta final}
+    supervisor --> sql_expert: needs_sql
+    supervisor --> explainer: direct_answer
 
-    H -->|Aprobar| I[Mostrar respuesta final]
-    H -->|Editar feedback| G
-    H -->|Rechazar| X
+    sql_expert --> human_sql_review
+    human_sql_review --> sql_executor: approve
+    human_sql_review --> sql_expert: edit_sql
+    human_sql_review --> END: reject
+
+    sql_executor --> explainer: results_ok
+    sql_executor --> sql_expert: sql_error
+
+    explainer --> human_response_review
+    human_response_review --> finalizer: approve
+    human_response_review --> explainer: feedback
+    human_response_review --> END: reject
+
+    finalizer --> END
+    END --> [*]
+
+    state START {
+        [*] --> input_state
+        input_state --> [*]
+    }
+
+    state human_sql_review <<choice>>
+    state human_response_review <<choice>>
 ```
 
 ---
