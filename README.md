@@ -39,7 +39,7 @@ Opcionales:
 
 ---
 
-### Diagrama de arquitectura (Markdown)
+### Diagrama de arquitectura
 
 ```mermaid
 flowchart TD
@@ -56,6 +56,7 @@ flowchart TD
 	FIN --> LTM[LongTermMemory -> Supabase]
 	MAIN --> REDIS[(Redis Events)]
 ```
+
 ### Diagrama del flujo LangGraph de la PoC
 
 ```mermaid
@@ -78,7 +79,7 @@ flowchart TD
     H --> I[Finalizer Agent]
 
     I --> J[Respuesta Final]
----
+```
 
 ### Flujo con revisión humana HITL
 
@@ -101,6 +102,8 @@ flowchart TD
     H -->|Editar feedback| G
     H -->|Rechazar| X
 ```
+
+---
 
 ### Clases principales (resumen corto)
 
