@@ -92,6 +92,41 @@ def render_state_details(state: Dict[str, Any]):
                 use_container_width=True,
             )
 
+        st.download_button(
+            "Descargar reporte Markdown",
+            data=build_markdown_report(state),
+            file_name=f"chinook_report_{state.get('conversation_id', 'report')}.md",
+            mime="text/markdown",
+        )
+
+
+def build_markdown_report(state: Dict[str, Any]) -> str:
+
+    sql_results = state.get("sql_results") or []
+    lines = [
+        "# Reporte de conversación Chinook",
+        "",
+        f"**Usuario:** {state.get('user_id', '')}",
+        f"**Conversation ID:** {state.get('conversation_id', '')}",
+        f"**Pregunta:** {state.get('user_query', '')}",
+        f"**Intención:** {state.get('query_intent', '')}",
+        f"**Estado:** {state.get('status', '')}",
+        "",
+        "## Respuesta",
+        state.get("final_response") or state.get("draft_response") or "Sin respuesta",
+        "",
+    ]
+
+    if state.get("generated_sql"):
+        lines.extend(["## SQL generado", "```sql", state["generated_sql"], "```", ""])
+
+    if sql_results:
+        lines.append("## Resultados")
+        df = pd.DataFrame(sql_results)
+        lines.append(df.to_csv(index=False))
+
+    return "\n".join(lines)
+
 
 def process_prompt(prompt: str):
 
@@ -259,6 +294,7 @@ if pending:
                     ),
                     sql_override=edited_sql,
                     human_feedback=feedback_sql,
+                    conversation_id=pending.get("conversation_id"),
                 )
 
                 st.session_state.pending_state = (
@@ -280,9 +316,20 @@ if pending:
 
             if st.button("Rechazar SQL"):
 
-                st.error("SQL rechazado")
+                rejected_result = run_conversation(
+                    pending["user_query"],
+                    st.session_state.user_id,
+                    interactive=False,
+                    sql_rejected=True,
+                    conversation_id=pending.get("conversation_id"),
+                )
 
                 st.session_state.pending_state = None
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": rejected_result.get("final_response", "SQL rechazado"),
+                    "state": rejected_result,
+                })
 
                 st.rerun()
 
@@ -323,6 +370,7 @@ if pending:
                     auto_approve_sql=True,
                     auto_approve_response=True,
                     human_feedback=feedback,
+                    conversation_id=pending.get("conversation_id"),
                 )
 
                 st.session_state.pending_state = (
@@ -346,10 +394,20 @@ if pending:
                 "Rechazar respuesta"
             ):
 
-                st.error(
-                    "Respuesta rechazada"
+                rejected_result = run_conversation(
+                    pending["user_query"],
+                    st.session_state.user_id,
+                    interactive=False,
+                    auto_approve_sql=True,
+                    response_rejected=True,
+                    conversation_id=pending.get("conversation_id"),
                 )
 
                 st.session_state.pending_state = None
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": rejected_result.get("final_response", "Respuesta rechazada"),
+                    "state": rejected_result,
+                })
 
                 st.rerun()
