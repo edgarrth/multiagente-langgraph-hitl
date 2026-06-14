@@ -2,6 +2,12 @@
 
 PoC multiagente que responde preguntas sobre la base de datos **Chinook** (SQLite) usando LangGraph + LangChain, con *Human-in-the-loop* (HITL) para aprobar SQL y respuestas finales.
 
+### Levantar infraestructura
+
+```bash
+cd infraestructure
+docker compose up -d
+
 ### Ejecución
 
 Preparar un entorno conda y ejecutar con:
@@ -24,8 +30,6 @@ Se debe tener el archivo .env en el directorio raiz, con lo siguiente:
 Requeridas:
 
 - `OPENAI_API_KEY`
-- `SUPABASE_URL`
-- `SUPABASE_SERVICE_ROLE_KEY`
 
 Recomendadas:
 
@@ -39,79 +43,91 @@ Opcionales:
 
 ---
 
+### Bases de datos
+
+| Uso | Tecnología | Archivo/servicio |
+|---|---|---|
+| Datos de negocio Chinook | SQLite | `data/Chinook.sqlite` |
+| Memoria persistente | SQLite | `data/app_memory.sqlite` |
+| Checkpoints LangGraph | SQLite local si está disponible, fallback en memoria | `data/langgraph_checkpoints.sqlite` |
+| Eventos efímeros | Redis local opcional | `localhost:6379` |
+
+---
 ### Diagrama de arquitectura
 
 ```mermaid
 flowchart TD
-	UI[CLI / Streamlit] --> MAIN[src/main.py: run_conversation]
-	MAIN --> QI[QueryInterpreterAgent]
-	QI --> SUP[SupervisorAgent]
-	SUP -->|requires_sql = true| SQL[SQLExpertAgent]
-	SUP -->|requires_sql = false| EXP[ExplainerAgent]
-	SQL -->|HITL SQL| UI
-	SQL -->|execute_sql| DB[(SQLite Chinook)]
-	DB --> EXP
-	EXP -->|HITL respuesta| UI
-	EXP --> FIN[SupervisorAgent.finalize_response]
-	FIN --> LTM[LongTermMemory -> Supabase]
-	MAIN --> REDIS[(Redis Events)]
+    UI[CLI / Streamlit] --> MAIN[src/main.py: run_conversation]
+    MAIN --> GRAPH[src/graph/workflow.py: workflow_app.invoke]
+
+    GRAPH --> QI[query_interpreter]
+    GRAPH --> SUP[supervisor]
+    GRAPH --> SQL[sql_expert]
+    GRAPH --> HITL_SQL[human_sql_review]
+    GRAPH --> EXEC[sql_executor]
+    GRAPH --> EXP[explainer]
+    GRAPH --> HITL_RESP[human_response_review]
+    GRAPH --> FIN[finalizer]
+
+    EXEC --> DB[(SQLite Chinook)]
+    FIN --> LTM[(SQLite app_memory)]
+    GRAPH --> CKPT[(SQLite checkpoints / MemorySaver)]
+    GRAPH --> REDIS[(Redis local opcional)]
 ```
 
 ### Diagrama del flujo LangGraph de la PoC
 
 
 ```mermaid
-stateDiagram-v2
-    direction LR
+flowchart LR
+    START((START)) --> QI[query_interpreter]
+    QI --> SUP[supervisor]
 
-    [*] --> START
+    SUP -->|requires_sql=true| SQL[sql_expert]
+    SUP -->|requires_sql=false| EXP[explainer]
 
-    START --> query_interpreter
-    query_interpreter --> supervisor
+    SQL -->|sql normal| HITL_SQL{{human_sql_review}}
+    SQL -->|schema / no_sql_posible| EXP
 
-    supervisor --> sql_expert: needs_sql
-    supervisor --> explainer: direct_answer
+    HITL_SQL -->|approved / edited| EXEC[sql_executor]
+    HITL_SQL -->|pending / rejected| END((END))
 
-    sql_expert --> human_sql_review
-    human_sql_review --> sql_executor: approve
-    human_sql_review --> sql_expert: edit_sql
-    human_sql_review --> END: reject
+    EXEC --> EXP
+    EXP --> HITL_RESP{{human_response_review}}
 
-    sql_executor --> explainer: results_ok
-    sql_executor --> sql_expert: sql_error
+    HITL_RESP -->|approved / feedback| FIN[finalizer]
+    HITL_RESP -->|pending / rejected| END
 
-    explainer --> human_response_review
-    human_response_review --> finalizer: approve
-    human_response_review --> explainer: feedback
-    human_response_review --> END: reject
+    FIN --> END
 
-    finalizer --> END
-    END --> [*]
+    classDef startEnd fill:#111827,color:#fff,stroke:#111827;
+    classDef agent fill:#e0f2fe,stroke:#0369a1,color:#0f172a;
+    classDef tool fill:#dcfce7,stroke:#15803d,color:#0f172a;
+    classDef hitl fill:#fef3c7,stroke:#d97706,color:#0f172a;
+    classDef router fill:#ede9fe,stroke:#7c3aed,color:#0f172a;
 
-    state START {
-        [*] --> input_state
-        input_state --> [*]
-    }
-
-    state human_sql_review <<choice>>
-    state human_response_review <<choice>>
+    class START,END startEnd;
+    class QI,SQL,EXP,FIN agent;
+    class EXEC tool;
+    class HITL_SQL,HITL_RESP hitl;
+    class SUP router;
 ```
 
 ---
 
 ### Clases principales (resumen corto)
 
-- `QueryInterpreterAgent` (`src/agents/query_interpreter.py`): clasifica intención y decide si se requiere SQL. Usa LLM con prompt estructurado.
-- `SQLExpertAgent` (`src/agents/sql_expert.py`): genera, valida y ejecuta SQL seguro contra Chinook. Incluye flujo de aprobación humana.
-- `ExplainerAgent` (`src/agents/explainer.py`): convierte resultados en explicación clara en español. Maneja casos especiales como listado de tablas.
-- `SupervisorAgent` (`src/agents/supervisor.py`): enruta el flujo entre agentes y consolida la respuesta final.
-- `SQLiteManager` (`src/db/sqlite_manager.py`): ejecuta consultas y expone el esquema de la base Chinook.
-- `RedisManager` (`src/db/redis_manager.py`): publica eventos del flujo y estado en Redis.
-- `SupabaseManager` (`src/db/supabase_manager.py`): persiste conversaciones y memorias en Supabase.
-- `LongTermMemory` (`src/memory/long_term.py`): API de memoria persistente sobre Supabase.
-- `ShortTermMemory` (`src/memory/short_term.py`): utilidades para resumir y formatear contexto reciente.
-- `Settings` (`src/config/settings.py`): carga configuración desde `.env` y define defaults del runtime.
-- `AgentState` (`src/graph/state.py`): contrato del estado del grafo para LangGraph.
+- `src/graph/workflow.py`: define el `StateGraph`, nodos, rutas condicionales, HITL y checkpointer local.
+- `src/main.py`: fachada CLI/Streamlit que invoca el grafo compilado.
+- `QueryInterpreterAgent`: clasifica intención y decide si requiere SQL.
+- `SupervisorAgent`: enruta y finaliza respuesta.
+- `SQLExpertAgent`: genera, valida y ejecuta SQL seguro `SELECT` sobre Chinook.
+- `ExplainerAgent`: convierte resultados técnicos en respuesta en español.
+- `SQLiteManager`: consulta la base Chinook.
+- `LocalMemoryManager`: persiste conversaciones y memorias en SQLite local.
+- `LongTermMemory`: API de memoria persistente sobre `LocalMemoryManager`.
+- `RedisManager`: publica eventos opcionales del flujo.
+- `AgentState`: contrato de estado compartido por LangGraph.
 
 ---
 
