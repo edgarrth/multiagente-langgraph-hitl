@@ -7,6 +7,7 @@ PoC multiagente que responde preguntas sobre la base de datos **Chinook** (SQLit
 ```bash
 cd infraestructure
 docker compose up -d
+```
 
 ### Ejecución
 
